@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ババ抜きゲーム（CPU3人対あなた）</title>
+<style>
+  body {
+    background: #1e272e;
+    color: white;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+  }
+  h1 {
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  #log {
+    background: #2f3640;
+    height: 140px;
+    overflow-y: auto;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    white-space: pre-wrap;
+    font-size: 14px;
+  }
+  #players {
+    display: flex;
+    justify-content: space-around;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .player {
+    background: #353b48;
+    border-radius: 10px;
+    width: 22%;
+    padding: 12px;
+    box-sizing: border-box;
+  }
+  .player h2 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .hand {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    position: relative;
+  }
+  .card {
+    width: 48px;
+    height: 70px;
+    border-radius: 8px;
+    background: white;
+    color: black;
+    font-weight: bold;
+    font-size: 18px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: 0 3px 5px rgba(0,0,0,0.3);
+    transition: transform 0.2s;
+    position: relative;
+  }
+  .card.red {
+    color: red;
+  }
+  .card.disabled {
+    cursor: default;
+    background: #2f3640;
+    color: #718093;
+    box-shadow: none;
+  }
+  .card.back {
+    background: #718093;
+    color: transparent;
+    cursor: default;
+  }
+  .card:hover:not(.disabled) {
+    transform: translateY(-8px);
+  }
+  .card.clickable::after {
+    content: "ここをクリック！";
+    position: absolute;
+    bottom: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: #00ff00;
+    font-weight: bold;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  button {
+    display: block;
+    margin: 0 auto 25px auto;
+    padding: 12px 30px;
+    font-size: 18px;
+    background: #44bd32;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    user-select: none;
+  }
+  button:disabled {
+    background: #7f8fa6;
+    cursor: not-allowed;
+  }
+  @media(max-width: 720px) {
+    .player {
+      width: 48%;
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1>ババ抜きゲーム（CPU3人 対 あなた）</h1>
+
+<div id="log"></div>
+
+<div id="players">
+  <div class="player" id="player-0">
+    <h2>あなた</h2>
+    <div class="hand" id="hand-0"></div>
+  </div>
+  <div class="player" id="player-1">
+    <h2>CPU1</h2>
+    <div class="hand" id="hand-1"></div>
+  </div>
+  <div class="player" id="player-2">
+    <h2>CPU2</h2>
+    <div class="hand" id="hand-2"></div>
+  </div>
+  <div class="player" id="player-3">
+    <h2>CPU3</h2>
+    <div class="hand" id="hand-3"></div>
+  </div>
+</div>
+
+<button id="startBtn">ゲーム開始</button>
+
+<script>
+(() => {
+  const suits = ['♠', '♥', '♦', '♣'];
+  const ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  const joker = {suit:'JOKER', rank:'JOKER'};
+
+  class Player {
+    constructor(name, isHuman=false){
+      this.name = name;
+      this.isHuman = isHuman;
+      this.hand = [];
+    }
+    removePairs(){
+      const count = {};
+      this.hand.forEach(c => {
+        count[c.rank] = (count[c.rank] || 0) + 1;
+      });
+      const newHand = [];
+      for(const rank in count){
+        if(count[rank] % 2 === 1){
+          let found = false;
+          for(const card of this.hand){
+            if(card.rank === rank && !found){
+              newHand.push(card);
+              found = true;
+            }
+          }
+        }
+      }
+      this.hand = newHand;
+    }
+    hasJoker(){
+      return this.hand.some(c => c.suit === 'JOKER');
+    }
+    isEmpty(){
+      return this.hand.length === 0;
+    }
+  }
+
+  class OldMaidGame {
+    constructor(){
+      this.players = [
+        new Player('あなた', true),
+        new Player('CPU1'),
+        new Player('CPU2'),
+        new Player('CPU3'),
+      ];
+      this.currentPlayerIndex = 0;
+      this.isGameOver = false;
+
+      this.logElem = document.getElementById('log');
+      this.handContainers = [
+        document.getElementById('hand-0'),
+        document.getElementById('hand-1'),
+        document.getElementById('hand-2'),
+        document.getElementById('hand-3'),
+      ];
+
+      this.startBtn = document.getElementById('startBtn');
+      this.startBtn.addEventListener('click', () => this.startGame());
+    }
+
+    log(text){
+      this.logElem.textContent += text + '\n';
+      this.logElem.scrollTop = this.logElem.scrollHeight;
+    }
+
+    createDeck(){
+      const deck = [];
+      for(const s of suits){
+        for(const r of ranks){
+          deck.push({suit: s, rank: r});
+        }
+      }
+      deck.push(joker);
+      return deck;
+    }
+
+    shuffle(deck){
+      for(let i=deck.length-1; i>0; i--){
+        const j = Math.floor(Math.random() * (i+1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+    }
+
+    deal(){
+      const deck = this.createDeck();
+      this.shuffle(deck);
+      let i = 0;
+      while(deck.length > 0){
+        this.players[i % this.players.length].hand.push(deck.pop());
+        i++;
+      }
+      this.players.forEach(p => p.removePairs());
+    }
+
+    renderHands(showAll=false){
+      for(let i=0; i<this.players.length; i++){
+        const player = this.players[i];
+        const container = this.handContainers[i];
+        container.innerHTML = '';
+        if(player.isHuman || showAll){
+          player.hand.forEach((card, idx) => {
+            const cardDiv = document.createElement('div');
+            cardDiv.className = 'card';
+            if(card.suit === '♥' || card.suit === '♦') cardDiv.classList.add('red');
+            cardDiv.textContent = card.suit === 'JOKER' ? '🃏' : card.rank + card.suit;
+            if(player.isHuman){
+              cardDiv.dataset.idx = idx;
+            } else {
+              cardDiv.classList.add('disabled');
+            }
+            container.appendChild(cardDiv);
+          });
+        } else {
+          for(let j=0; j<player.hand.length; j++){
+            const backDiv = document.createElement('div');
+            backDiv.className = 'card back disabled';
+            backDiv.textContent = '🂠';
+
+            const currentPlayer = this.players[this.currentPlayerIndex];
+            const nextIndex = (this.currentPlayerIndex + 1) % this.players.length;
+
+            if(nextIndex === i && currentPlayer.isHuman && !this.isGameOver){
+              backDiv.classList.remove('disabled');
+              backDiv.classList.add('clickable');
+              backDiv.style.cursor = 'pointer';
+            }
+            container.appendChild(backDiv);
+          }
+        }
+      }
+    }
+
+    async startGame(){
+      if(!confirm('新しくゲームを開始しますか？')) return;
+
+      this.logElem.textContent = '';
+      this.players.forEach(p => p.hand = []);
+      this.currentPlayerIndex = 0;
+      this.isGameOver = false;
+
+      this.deal();
+      this.log('ゲーム開始！ジョーカーを持っている人が負けです。');
+      this.renderHands();
+
+      while(!this.isGameOver){
+        await this.turn();
+        if(this.isGameOver) break;
+        this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
+      }
+    }
+
+    async turn(){
+      const player = this.players[this.currentPlayerIndex];
+      if(player.isEmpty()){
+        this.log(`${player.name}は手札がなくなり勝ち抜けました！`);
+        this.players.splice(this.currentPlayerIndex, 1);
+        if(this.currentPlayerIndex >= this.players.length) this.currentPlayerIndex = 0;
+        if(this.players.length === 1){
+          this.log(`ゲーム終了！負けは${this.players[0].name}です。`);
+          this.isGameOver = true;
+        }
+        this.renderHands();
+        return;
+      }
+      this.log(`\n${player.name}のターンです。`);
+
+      const nextIndex = (this.currentPlayerIndex + 1) % this.players.length;
+      const nextPlayer = this.players[nextIndex];
+
+      if(player.isHuman){
+        this.log(`CPU${nextIndex}のカードから1枚引いてください。`);
+        this.renderHands();
+
+        // クリックイベントでカードを引くのを待つ
+        const cardIndex = await this.waitForPlayerPick(nextIndex);
+        const card = nextPlayer.hand.splice(cardIndex, 1)[0];
+        player.hand.push(card);
+        this.log(`あなたはCPU${nextIndex}から${card.suit==='JOKER'?'ジョーカー':card.rank+card.suit}を引きました。`);
+
+      } else {
+        // CPUは次プレイヤーのカードからランダムに1枚引く
+        const idx = Math.floor(Math.random() * nextPlayer.hand.length);
+        const card = nextPlayer.hand.splice(idx, 1)[0];
+        player.hand.push(card);
+        this.log(`${player.name}は${nextPlayer.name}のカードから1枚引きました。`);
+        await this.sleep(1000);
+      }
+
+      player.removePairs();
+
+      this.renderHands();
+
+      if(player.isEmpty()){
+        this.log(`${player.name}は手札がなくなり勝ち抜けました！`);
+        this.players.splice(this.currentPlayerIndex, 1);
+        if(this.currentPlayerIndex >= this.players.length) this.currentPlayerIndex = 0;
+        if(this.players.length === 1){
+          this.log(`ゲーム終了！負けは${this.players[0].name}です。`);
+          this.isGameOver = true;
+        }
+        this.renderHands();
+      }
+    }
+
+    waitForPlayerPick(cpuIndex){
+      return new Promise(resolve => {
+        const container = this.handContainers[cpuIndex];
+        const handler = e => {
+          if(e.target.classList.contains('clickable')){
+            const idx = Array.from(container.children).indexOf(e.target);
+            container.removeEventListener('click', handler);
+            resolve(idx);
+          }
+        };
+        container.addEventListener('click', handler);
+      });
+    }
+
+    sleep(ms){
+      return new Promise(r => setTimeout(r, ms));
+    }
+  }
+
+  window.onload = () => {
+    const game = new OldMaidGame();
+  };
+})();
+</script>
+
+</body>
+</html>
